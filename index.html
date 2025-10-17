@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gemini Code Review Assistant</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* Scrollbar customization for review output */
+    .review-output::-webkit-scrollbar {
+      width: 8px;
+    }
+    .review-output::-webkit-scrollbar-thumb {
+      background-color: #4f46e5;
+      border-radius: 4px;
+    }
+    .review-output::-webkit-scrollbar-track {
+      background-color: #f3f4f6;
+    }
+
+    /* File input styling */
+    .custom-file-input {
+      cursor: pointer;
+      border: 2px dashed #9ca3af;
+      transition: all 0.25s ease;
+    }
+    .custom-file-input:hover {
+      border-color: #4f46e5;
+      background-color: #f9fafb;
+      transform: scale(1.02);
+    }
+
+    /* Code block appearance */
+    .code-block {
+      font-family: "Consolas", "Monaco", "Courier New", monospace;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-6 font-[Inter]">
+  <!-- Header -->
+  <header class="w-full max-w-4xl mb-8 text-center">
+    <h1 class="text-4xl font-extrabold text-gray-900 mb-2 tracking-tight">
+      Gemini Code Review Assistant
+    </h1>
+    <p class="text-gray-600 text-lg">
+      Upload or paste your code below for an AI-powered professional review.
+    </p>
+    <div id="user-id-display" class="text-xs text-gray-400 mt-2">
+      Initializing user...
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="w-full max-w-4xl bg-white shadow-2xl rounded-2xl p-8 lg:p-10">
+    
+    <!-- Input Section -->
+    <section class="mb-10">
+      <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+        <i data-lucide="code-xml" class="w-6 h-6 mr-2 text-indigo-600"></i>
+        Step 1: Provide Your Code
+      </h2>
+
+      <!-- Textarea Input -->
+      <div class="mb-6">
+        <label for="code-input" class="block text-sm font-medium text-gray-700 mb-1">
+          Paste Code Here (Max 10,000 characters)
+        </label>
+        <textarea
+          id="code-input"
+          rows="12"
+          class="w-full border border-gray-300 rounded-lg p-4 font-mono text-sm bg-gray-50 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner resize-y"
+          placeholder="// Paste your Python, JavaScript, Java, or HTML code here..."
+        ></textarea>
+      </div>
+
+      <!-- File Upload -->
+      <div class="text-center py-4 border-t border-gray-200">
+        <p class="text-sm text-gray-500 mb-3 font-medium">Or Upload a File</p>
+        <label
+          for="file-upload"
+          class="custom-file-input inline-flex items-center justify-center w-full max-w-md px-6 py-3 bg-white text-gray-800 rounded-xl shadow-md hover:shadow-lg"
+        >
+          <i data-lucide="upload" class="w-5 h-5 mr-3"></i>
+          <span id="file-label" class="font-medium">
+            Select a Code File (.js, .py, .html, etc.)
+          </span>
+          <input id="file-upload" type="file" class="hidden" onchange="handleFileSelect(event)" />
+        </label>
+        <p id="file-error" class="text-red-500 text-sm mt-2 hidden">File reading error.</p>
+      </div>
+    </section>
+
+    <!-- Review Button -->
+    <div class="border-t border-gray-200 pt-6">
+      <button
+        id="review-button"
+        onclick="startReview()"
+        class="w-full inline-flex justify-center items-center px-8 py-4 text-lg font-bold rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-200 disabled:bg-indigo-300"
+      >
+        <i data-lucide="sparkles" class="w-6 h-6 mr-3"></i>
+        <span id="button-text">Start Code Review</span>
+      </button>
+      <p id="input-error" class="text-red-500 text-center text-sm mt-3 hidden">
+        Please paste code or select a file to review.
+      </p>
+    </div>
+
+    <!-- Results Section -->
+    <section class="mt-10 border-t border-gray-200 pt-8">
+      <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+        <i data-lucide="lightbulb" class="w-6 h-6 mr-2 text-indigo-600"></i>
+        Step 2: Review Results
+      </h2>
+
+      <div
+        id="review-output"
+        class="review-output p-6 bg-gray-50 border border-indigo-100 shadow-md rounded-xl h-96 overflow-y-auto text-base text-gray-800 leading-relaxed"
+      >
+        The AI-generated review will appear here. You’ll see a structured summary with key findings and actionable recommendations.
+      </div>
+
+      <div
+        id="citation-container"
+        class="mt-4 hidden p-4 border-l-4 border-gray-300 bg-gray-50 rounded"
+      >
+        <h3 class="text-xs font-semibold text-gray-600 mb-2">Sources Used for Grounding:</h3>
+        <ul id="citation-list" class="list-disc list-inside text-xs text-gray-500 space-y-1"></ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- JavaScript (Module) -->
+  <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+  import {
+    getAuth,
+    signInAnonymously,
+    signInWithCustomToken,
+    onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  import { getFirestore, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+  // === ✅ Your constants ===
+  const backendURL = "http://127.0.0.1:8000/review";  // <--- add this line
+  const MAX_CODE_LENGTH = 10000;
+
+  let app, db, auth;
+  let userId = "anonymous";
+
+  const codeInput = document.getElementById("code-input");
+  const fileUpload = document.getElementById("file-upload");
+  const fileLabel = document.getElementById("file-label");
+  const fileError = document.getElementById("file-error");
+  const reviewButton = document.getElementById("review-button");
+  const buttonText = document.getElementById("button-text");
+  const reviewOutput = document.getElementById("review-output");
+  const inputError = document.getElementById("input-error");
+  const citationContainer = document.getElementById("citation-container");
+  const citationList = document.getElementById("citation-list");
+
+  // === Firebase initialization (optional) ===
+  const initializeFirebase = async () => {
+    try {
+      const firebaseConfig =
+        typeof __firebase_config !== "undefined" ? JSON.parse(__firebase_config) : {};
+
+      if (Object.keys(firebaseConfig).length === 0) {
+        console.warn("Firebase config missing. Proceeding with fallback ID.");
+        userId = crypto.randomUUID();
+        document.getElementById("user-id-display").textContent = `User ID (Fallback): ${userId}`;
+        return;
+      }
+
+      setLogLevel("debug");
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getFirestore(app);
+
+      const token = typeof __initial_auth_token !== "undefined" ? __initial_auth_token : null;
+
+      if (token) {
+        await signInWithCustomToken(auth, token);
+      } else {
+        await signInAnonymously(auth);
+      }
+
+      onAuthStateChanged(auth, (user) => {
+        userId = user ? user.uid : "anonymous";
+        document.getElementById("user-id-display").textContent = `User ID: ${userId}`;
+      });
+    } catch (error) {
+      console.error("Firebase initialization failed:", error);
+    }
+  };
+
+  window.onload = initializeFirebase;
+
+  // === File selection ===
+  window.handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    fileError.classList.add("hidden");
+    if (file) {
+      fileLabel.textContent = `File selected: ${file.name}`;
+      codeInput.value = "";
+      const reader = new FileReader();
+      reader.onload = (e) => (codeInput.value = e.target.result);
+      reader.onerror = () => fileError.classList.remove("hidden");
+      reader.readAsText(file);
+    } else {
+      fileLabel.textContent = "Select a Code File (.js, .py, .html, etc.)";
+    }
+  };
+
+  // Reset file when typing in textarea
+  codeInput.addEventListener("input", () => {
+    if (codeInput.value.trim().length > 0) {
+      fileUpload.value = "";
+      fileLabel.textContent = "Select a Code File (.js, .py, .html, etc.)";
+    }
+  });
+
+  // === ✅ Add this new function ===
+  async function startReview() {
+    const code = codeInput.value.trim();
+    if (!code) {
+      inputError.classList.remove("hidden");
+      return;
+    }
+    inputError.classList.add("hidden");
+
+    buttonText.textContent = "Reviewing...";
+    reviewButton.disabled = true;
+    reviewOutput.innerHTML = "Analyzing code... please wait.";
+
+    try {
+      const response = await fetch(backendURL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, source: "Frontend UI" })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.detail || "Error during review.");
+
+      reviewOutput.innerHTML = `<pre class="whitespace-pre-wrap code-block">${data.review}</pre>`;
+
+      // Display sources if any
+      if (data.sources && data.sources.length > 0) {
+        citationList.innerHTML = "";
+        data.sources.forEach((src) => {
+          const li = document.createElement("li");
+          li.innerHTML = `<a href="${src.uri}" target="_blank">${src.title}</a>`;
+          citationList.appendChild(li);
+        });
+        citationContainer.classList.remove("hidden");
+      } else {
+        citationContainer.classList.add("hidden");
+      }
+
+    } catch (error) {
+      reviewOutput.innerHTML = `<span class="text-red-500">Error: ${error.message}</span>`;
+    } finally {
+      buttonText.textContent = "Start Code Review";
+      reviewButton.disabled = false;
+    }
+  }
+
+  // === ✅ Attach to button ===
+  window.startReview = startReview;
+</script>
+
+</body>
+</html>
